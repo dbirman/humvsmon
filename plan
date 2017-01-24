@@ -1,0 +1,13 @@
+(1) Run control experiments for DMS/DMC on Mturk (20 participants each: 100 trials per participant)
+
+(2) Run psychophysics room experiments for DMS
+
+(3) Run psychophysics room + generalization experiments for DMC
+
+(4) Run up-down and left-right experiments for DMC
+
+(5) Build modeling framework to compare 'naive RL' against 'strategic' learning
+
+Paper outline:
+
+Cognitive behavior in humans doesn't translate directly to animal models.
