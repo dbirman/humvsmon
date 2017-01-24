@@ -1,0 +1,328 @@
+---
+title: "freedman_analysis"
+output: html_document
+---
+```{r}
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+library(effects)
+library(lme4)
+```
+
+
+```{r}
+files = dir('~/proj/freedman_rep/data/dircsv/')
+
+adata_dir = data.frame();
+for (fi in 1:length(files)) {
+  fname = files[fi]
+  data = read.csv(paste('~/proj/freedman_rep/data/dircsv/',fname,sep=''))
+  data = data %>%
+    mutate(wid=fi)
+  adata_dir = rbind(adata_dir,data)
+}
+files = dir('~/proj/freedman_rep/data/catcsv/')
+
+adata_cat = data.frame();
+for (fi in 1:length(files)) {
+  fname = files[fi]
+  data = read.csv(paste('~/proj/freedman_rep/data/catcsv/',fname,sep=''))
+  data = data %>%
+    mutate(wid=fi)
+  adata_cat = rbind(adata_cat,data)
+}
+
+files = dir('~/proj/freedman_rep/data/longcsv/')
+
+adata_long = data.frame();
+for (fi in 1:length(files)) {
+  fname = files[fi]
+  data = read.csv(paste('~/proj/freedman_rep/data/longcsv/',fname,sep=''))
+  data = data %>%
+    mutate(wid=fi)
+  adata_long = rbind(adata_long,data)
+}
+```
+
+```{r}
+```
+
+```{r}
+fixHeaders = function(data) {  
+  data$correct[data$correct==-1] = 0
+  data = data %>%
+    mutate(catbig = categories)
+  data$catbig[data$catbig==1] = 2
+  data = data %>%
+    mutate(categoriesf = factor(categories,levels=c(0,1),labels=c('Directions','Categories')),
+           knownf = factor(known,levels=c(0,1),labels=c('Discovered','Known')),
+           matchf = factor(match,levels=c(0,1),labels=c('Unmatched','Matched')),
+           correctf = factor(correct,levels=c(0,1),labels=c('Wrong','Correct')),
+           catknown = factor(catbig+known,levels=c(0,1,2,3),labels=c('Directions','Directions Known','Categories','Categories Known')),
+           btrials = trial+block*max(trial))
+  
+  return(data)
+}
+```
+
+
+```{r}
+adata_long = fixHeaders(adata_long)
+adata_cat = fixHeaders(adata_cat)
+adata_dir = fixHeaders(adata_dir)
+adata_long$wid = adata_long$wid + max(adata_cat$wid) + max(adata_dir$wid)
+adata_cat$wid = adata_cat$wid + max(adata_dir$wid)
+
+cdata = rbind(adata_cat,adata_long)
+cdata$widf = factor(cdata$wid)
+
+## Remove everybody who showed no performance in known condition
+
+```
+
+```{r}
+data = adata_long
+length(unique(data$wid))
+knownperf = data %>%
+  filter(known==1) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+
+widlist = c()
+for (i in unique(knownperf$wid)) {
+  if (knownperf$mu[i]<.7) {
+    widlist = c(widlist,i)
+  }
+}
+
+for (w  in widlist) {
+  data = data %>%
+    filter(wid!=w)
+}
+length(unique(data$wid))
+```
+
+
+```{r}
+counts = data %>%
+  group_by(wid) %>%
+  summarise(press = sum(responses==1),nopress=sum(responses==-1))
+```
+
+```{r}
+data$widf = factor(data$wid)
+rs = glm(correct~btrials,family='binomial',data=data)
+plot(allEffects(rs))
+```
+
+```{r}
+
+data_unk = data %>%
+  filter(catknown=='Categories',btrials<=150)
+```
+
+
+
+```{r}
+data_loc = data_unk %>%
+  filter(wid %in% c(63,45,5,31))
+ggplot() + 
+  #geom_smooth(data=data_unk, aes(btrials,correct),method="glm",family='binomial',size=2,se=F) +
+  geom_line(data=data_unk, aes(btrials,correct, group=wid),
+            stat="smooth",
+            method = "glm",
+            family="binomial",
+            span=1,
+            fullrange=F,
+            size = 0.5,
+            alpha = 0.1) +
+  geom_smooth(data=data_loc, aes(btrials,correct, group=wid),
+              method="glm",family="binomial",size=2,color="black",se=F,
+              fullrange=F) +
+  scale_y_continuous(breaks=c(.5,.75,1),limits=c(0,1.1)) +
+  theme_bw() +
+  ylab('Performance Correct (%)') +
+  xlab('Trial #') +
+  coord_cartesian(ylim=c(.3,1.05),xlim=c(-5,155)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())
+```
+
+```{r}
+mc = data %>%
+  filter(wid>47) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct)) %>%
+  arrange(desc(mu))
+```
+
+```{r}
+datad = data %>%
+  filter(categoriesf=='Directions',catknown=='Directions Known') %>%
+  mutate(diff = round(rot1-rot2,3)) %>%
+  group_by(diff,wid) %>%
+  summarise(mu=1-mean(corr))
+
+ggplot(datad, aes(diff*360/(2*pi),mu)) + 
+  geom_point(stat='identity') + 
+  geom_smooth(method="loess",color='orange',se=F) +
+```
+
+```{r}
+datac1 = data %>%
+  filter(categoriesf=='Categories',known==0,btrials>100) %>%
+  mutate(rot1d = rot1 * 360/(2*pi))
+dataw = datac1 %>%
+  group_by(rot1d,wid) %>%
+  summarise(mu=mean(correct))
+datac = datac1 %>%
+  group_by(rot1d) %>%
+  summarise(n=n(),mu=mean(correct)) %>%
+  mutate(se= 1*sqrt(mu*(1-mu)/n))
+
+datac$rot1d[datac$rot1d==0] = 360
+datac$rot1d = 360 - datac$rot1d
+
+# ss = max(unique(datac$wid))
+# 
+ss = 1
+datac = cbind(datac,col=c(rep(1,ss),rep(1,ss),rep(1,ss),rep(1,ss),
+                            rep(0,ss),rep(0,ss),rep(0,ss),rep(0,ss)))
+
+ggplot() +
+  geom_bar(data=datac, aes(rot1d,mu,ymin=mu-se,ymax=mu+se,fill=factor(col)),stat='identity') +
+  geom_errorbar(data=datac, aes(rot1d,mu,ymin=mu-se,ymax=mu+se,fill=factor(col)),width=0) +
+  geom_point(data=dataw,aes(rot1d,mu)) +
+  scale_y_continuous(breaks=c(0.5,1),limits=c(-.05,1.05)) +
+  scale_fill_brewer(palette='Paired') +
+  geom_vline(aes(xintercept=c(22.5,360-(180-22.5)),color='black')) +
+  theme_bw() +
+  xlab('Sample Direction (deg)') +
+  ylab('Percent Correct') +
+  ggtitle('End of Learning Phase (<100 Trials)')
+ggsave(filename='~/proj/freedman_rep/analysis/figures/cat_unknown.pdf')
+```
+
+
+```{r}
+datac1 = data %>%
+  filter(categoriesf=='Categories',known==1) %>%
+  mutate(rot1d = rot1 * 360/(2*pi))
+
+dataw = datac1 %>%
+  group_by(rot1d,wid) %>%
+  summarise(mu=mean(correct))
+datac = datac1 %>%
+  group_by(rot1d) %>%
+  summarise(n=n(),mu=mean(correct)) %>%
+  mutate(se= 1*sqrt(mu*(1-mu)/n))
+
+datac$rot1d[datac$rot1d==0] = 360
+datac$rot1d = 360 - datac$rot1d
+
+# ss = max(unique(datac$wid))
+# 
+ss = 1
+datac = cbind(datac,col=c(rep(1,ss),rep(1,ss),rep(1,ss),rep(1,ss),
+                            rep(0,ss),rep(0,ss),rep(0,ss),rep(0,ss)))
+
+ggplot() +
+  geom_rect(data=datac, aes(xmin=rot1d-20,xmax=rot1d+20,ymax=mu,ymin=0.5,fill=factor(col)),stat='identity') +
+  geom_errorbar(data=datac, aes(rot1d,mu,ymin=mu-se,ymax=mu+se,fill=factor(col)),width=0) +
+  scale_y_continuous(breaks=c(0.5,1),limits=c(.45,1.05)) +
+  scale_fill_brewer(palette='Paired') +
+  geom_point(data=dataw,aes(rot1d,mu),position=position_jitter(width=0.05,height=0.01)) +
+  geom_vline(aes(xintercept=c(22.5,360-(180-22.5)),color='black')) +
+  theme_bw() +
+  xlab('Sample Direction (deg)') +
+  ylab('Percent Correct') +
+  ggtitle('Known')
+ggsave(filename='~/proj/freedman_rep/analysis/figures/cat_known.pdf')
+```
+
+```{r}
+## compute plot from paper
+
+pd = data.frame(angle=c(22,67,112,157,202,247,292,337),col=c(0,1,1,1,1,0,0,0),perf=c(.89,.9,.97,.97,.86,.88,.97,.965))
+
+ggplot(pd, aes(angle,perf,fill=factor(col))) +
+  geom_bar(stat='identity') +
+  #geom_errorbar(width=0) +
+  scale_y_continuous(breaks=c(0.5,1),limits=c(-.05,1.05)) +
+  scale_fill_brewer(palette='Paired') +
+  geom_vline(aes(xintercept=c(45,225),color='black')) +
+  theme_bw() +
+  xlab('Sample Direction (deg)') +
+  ylab('Percent Correct') +
+  ggtitle('From PAper')
+ggsave(filename='~/proj/freedman_rep/analysis/figures/cat_paper.pdf')
+```
+
+
+```{r}
+## Compute the performance average across subjects at the end of each learning session, and during the known condition, then plot
+
+#adata_long
+#adata_cat
+#adata_dir
+
+longperf = adata_long %>%
+  filter(btrials>250) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+longperfK = adata_long %>%
+  filter(known==1) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+catperf = adata_cat %>%
+  filter(btrials>125) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+catperfK = adata_cat %>%
+  filter(known==1) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+dirperf = adata_dir %>%
+  filter(btrials>50) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+dirperfK = adata_dir %>%
+  filter(known==1) %>%
+  group_by(wid) %>%
+  summarise(mu=mean(correct))
+longperf = cbind(longperf,group="Category: Long",known="Learning")
+dirperf = cbind(dirperf,group="Direction",known="Learning")
+catperf = cbind(catperf,group="Category: Short",known="Learning")
+longperfK = cbind(longperfK,group="Category: Long",known="Known")
+dirperfK = cbind(dirperfK,group="Direction",known="Known")
+catperfK = cbind(catperfK,group="Category: Short",known="Known")
+
+allperf = rbind(dirperf,dirperfK,catperf,catperfK,longperf,longperfK)
+allperfs = allperf %>%
+  group_by(group,known) %>%
+  summarise(sd=sd(mu)/sqrt(n()),mu=mean(mu))
+
+```
+
+```{r}
+
+ggplot() + 
+  geom_bar(data=allperfs, aes(x=group,ymin=0.5,y=mu,fill=known),
+           position="dodge",stat="identity") +
+  geom_errorbar(data=allperfs,aes(group,mu,ymin=mu-1.96*sd,ymax=mu+1.96*sd,fill=known),
+           position="dodge",stat="identity") +
+  theme_bw()
+```
+
+```{r}
+ggplot(data=allperf, ) +
+  geom_point(aes(x=group,y=mu,ymax=mu,group=known,color=known),position="dodge")
+```
+
+```{r}
+# analysis of Fig 2 data
+contrasts(allperf$group) = cbind(c(-2,1,1),c(0,-1,1))
+rs = lm(data=allperf, mu ~ known*group)
+summary(rs)
+```
+
